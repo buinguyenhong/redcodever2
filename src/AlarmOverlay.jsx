@@ -229,11 +229,10 @@ export default function AlarmOverlay() {
       .eq('id', alarmId);
   };
 
-  // Xử lý khi bấm nút tắt thủ công
-  const handleManualStop = async () => {
-    if (!activeAlarm) return;
-    await handleAutoResolveDB(activeAlarm.id);
-  };
+ // Tắt thủ công chỉ trên máy hiện tại
+const handleManualStop = () => {
+  stopAlarmLocal();
+};
 
   const formatTime = (ms) => {
     const totalSeconds = Math.floor(ms / 1000);
@@ -324,7 +323,7 @@ export default function AlarmOverlay() {
             onClick={handleManualStop}
             className="bg-white text-red-700 px-10 py-6 rounded-2xl font-black text-2xl md:text-3xl shadow-[0_0_30px_rgba(255,255,255,0.6)] hover:bg-gray-100 hover:scale-105 transition-transform flex items-center uppercase border-b-8 border-gray-300"
           >
-            <XCircle className="mr-3 w-10 h-10" /> XÁC NHẬN & TẮT (ĐÃ XỬ LÝ)
+            <XCircle className="mr-3 w-10 h-10" /> XÁC NHẬN & TẮT
           </button>
         </div>
       </div>

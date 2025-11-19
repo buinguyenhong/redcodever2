@@ -1,57 +1,54 @@
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from './supabaseClient';
 import { useAuth } from './AuthContext';
-import { AlertTriangle, CheckCircle, Volume2, Clock } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Volume2, Clock, XCircle } from 'lucide-react';
 
-// 1. CẤU HÌNH ÂM THANH RIÊNG TẠI ĐÂY
-// Bạn có thể thay link mp3 khác tùy thích
+// 1. CẤU HÌNH ÂM THANH
 const SOUND_MAP = {
-  'RED CODE 1': 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3', // Tiếng còi hú gấp
-  'RED CODE 2': 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3', // (Tạm dùng chung, thay nếu muốn)
-  'BLUE CODE': 'https://assets.mixkit.co/active_storage/sfx/2559/2559-preview.mp3', // Tiếng 'Ping' điện tử dồn dập
-  'FIRE ALARM': 'https://assets.mixkit.co/active_storage/sfx/1090/1090-preview.mp3', // Tiếng chuông báo cháy
+  'RED CODE 1': 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3',
+  'RED CODE 2': 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3',
+  'BLUE CODE': 'https://assets.mixkit.co/active_storage/sfx/2559/2559-preview.mp3',
+  'FIRE ALARM': 'https://assets.mixkit.co/active_storage/sfx/1090/1090-preview.mp3',
 };
-
-// Fallback nếu không tìm thấy loại (Mặc định)
 const DEFAULT_SOUND = 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3';
 
-// Thời gian tự động tắt (5 phút = 300000 ms)
-const AUTO_STOP_DURATION = 5 * 60 * 1000;
+// 2. CẤU HÌNH THỜI GIAN: 1 PHÚT = 60 * 1000 ms
+const AUTO_STOP_DURATION = 60 * 1000;
 
 export default function AlarmOverlay() {
   const { user, profile } = useAuth();
   const [activeAlarm, setActiveAlarm] = useState(null);
   const [ackList, setAckList] = useState([]);
   const [canPlaySound, setCanPlaySound] = useState(true);
-  const [timeRemaining, setTimeRemaining] = useState(0); // Hiển thị đếm ngược
+  const [timeRemaining, setTimeRemaining] = useState(0);
+  
   const audioRef = useRef(new Audio());
-  const timerRef = useRef(null); // Để quản lý việc hủy hẹn giờ
+  const timerRef = useRef(null);
 
-  // Xử lý logic nhận tin nhắn Realtime
   useEffect(() => {
+    // Lắng nghe sự kiện Realtime
     const channel = supabase
       .channel('alarm-global')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'alarms' }, (payload) => {
         checkAndActivateAlarm(payload.new);
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'alarms' }, (payload) => {
-        // Nếu ai đó tắt thủ công (resolved) -> Tắt luôn
+        // Nếu trạng thái chuyển sang resolved -> Tắt ngay lập tức
         if (payload.new.status === 'resolved' && activeAlarm?.id === payload.new.id) {
-          stopAlarm();
+          stopAlarmLocal();
         }
       })
       .subscribe();
 
-    // Kiểm tra ngay khi load trang xem có báo động nào đang active không
+    // Kiểm tra báo động hiện có khi mới vào trang
     checkExistingAlarm();
 
     return () => {
       supabase.removeChannel(channel);
-      stopAlarm();
+      stopAlarmLocal();
     };
-  }, [activeAlarm]); // Re-run khi activeAlarm đổi để cập nhật logic
+  }, [activeAlarm]);
 
-  // Hàm kiểm tra báo động cũ khi mới F5 lại trang
   const checkExistingAlarm = async () => {
     const { data } = await supabase
       .from('alarms')
@@ -66,40 +63,36 @@ export default function AlarmOverlay() {
     }
   };
 
-  // Logic kiểm tra thời gian 5 phút
   const checkAndActivateAlarm = (alarm) => {
     const createdTime = new Date(alarm.created_at).getTime();
     const now = new Date().getTime();
     const elapsed = now - createdTime;
 
-    // Nếu báo động đã quá 5 phút -> Bỏ qua (Coil như đã tắt)
+    // Nếu đã quá 1 phút so với lúc tạo -> Không hiển thị nữa
     if (elapsed >= AUTO_STOP_DURATION) {
-      console.log("Báo động đã quá hạn 5 phút, bỏ qua.");
       return;
     }
 
-    // Nếu còn hạn -> Kích hoạt
     setActiveAlarm(alarm);
     
-    // Chọn âm thanh dựa trên loại code
+    // Phát âm thanh
     const soundUrl = SOUND_MAP[alarm.code_type] || DEFAULT_SOUND;
     audioRef.current.src = soundUrl;
     audioRef.current.loop = true;
     playAlarm();
 
-    // Thiết lập tự động tắt sau thời gian còn lại
+    // Tính thời gian còn lại để tắt
     const remaining = AUTO_STOP_DURATION - elapsed;
     
-    // Clear timer cũ nếu có
     if (timerRef.current) clearTimeout(timerRef.current);
     
-    // Set timer mới
+    // Hẹn giờ: Khi hết 1 phút -> Gọi hàm tắt Database
     timerRef.current = setTimeout(() => {
-      handleAutoResolve(alarm.id);
+      handleAutoResolveDB(alarm.id);
     }, remaining);
   };
 
-  // Hiệu ứng đếm ngược thời gian trên màn hình (Optional - cho đẹp)
+  // Hiệu ứng đồng hồ đếm ngược
   useEffect(() => {
     if (!activeAlarm) return;
     const interval = setInterval(() => {
@@ -113,7 +106,7 @@ export default function AlarmOverlay() {
     return () => clearInterval(interval);
   }, [activeAlarm]);
 
-  // Xử lý danh sách xác nhận (Ack) - Giữ nguyên như cũ
+  // Logic nhận người xem (ack)
   useEffect(() => {
     if (!activeAlarm) return;
 
@@ -130,6 +123,7 @@ export default function AlarmOverlay() {
       })
       .subscribe();
 
+    // Tự động xác nhận "Tôi đã nhận tin"
     const sendAutoAck = async () => {
       if(!profile) return;
       const { data } = await supabase.from('acknowledgments').select('id').eq('alarm_id', activeAlarm.id).eq('receiver_id', user.id);
@@ -150,13 +144,14 @@ export default function AlarmOverlay() {
     const playPromise = audioRef.current.play();
     if (playPromise !== undefined) {
         playPromise.catch(error => {
-            console.log("Trình duyệt chặn tự phát âm thanh:", error);
+            console.log("Auto-play bị chặn:", error);
             setCanPlaySound(false);
         });
     }
   };
 
-  const stopAlarm = () => {
+  // Chỉ tắt ở máy hiện tại (UI)
+  const stopAlarmLocal = () => {
     setActiveAlarm(null);
     setAckList([]);
     setCanPlaySound(true);
@@ -165,85 +160,100 @@ export default function AlarmOverlay() {
     if (timerRef.current) clearTimeout(timerRef.current);
   };
 
-  // Hàm xử lý khi hết giờ (Tự động tắt phía Client)
-  const handleAutoResolve = (alarmId) => {
-    console.log("Đã hết 5 phút, tự động tắt màn hình báo động.");
-    stopAlarm();
-    // Tùy chọn: Có thể update DB thành resolved nếu muốn, nhưng để an toàn
-    // chỉ cần tắt hiển thị ở máy trạm là đủ.
-  };
-
-  const handleResolveClick = async () => {
-    // Update DB để tắt cho tất cả mọi người
-    const { error } = await supabase
+  // Tắt trên toàn hệ thống (Ghi vào DB)
+  const handleAutoResolveDB = async (alarmId) => {
+    console.log("Hết 1 phút -> Tự động tắt báo động trên toàn hệ thống.");
+    stopAlarmLocal(); // Tắt local trước cho đỡ ồn
+    
+    // Cập nhật DB: status = 'resolved'
+    // Khi DB update, sự kiện realtime 'UPDATE' sẽ bắn về các máy khác để tắt theo
+    await supabase
       .from('alarms')
       .update({ status: 'resolved' })
-      .eq('id', activeAlarm.id);
-    
-    if(!error) stopAlarm();
+      .eq('id', alarmId);
   };
 
-  // Format thời gian đếm ngược (mm:ss)
+  // Xử lý khi bấm nút tắt thủ công
+  const handleManualStop = async () => {
+    await handleAutoResolveDB(activeAlarm.id);
+  };
+
   const formatTime = (ms) => {
     const totalSeconds = Math.floor(ms / 1000);
-    const m = Math.floor(totalSeconds / 60);
     const s = totalSeconds % 60;
-    return `${m}:${s < 10 ? '0' : ''}${s}`;
+    return `${s}s`;
   };
 
   if (!activeAlarm) return null;
 
-  const isRedCode = activeAlarm.code_type.includes('Red') || activeAlarm.code_type.includes('RED') || activeAlarm.code_type.includes('Fire') || activeAlarm.code_type.includes('FIRE');
-  const bgColor = isRedCode ? 'bg-red-600 animate-alarm-bg' : 'bg-blue-600';
+  const isRedCode = activeAlarm.code_type.includes('RED') || activeAlarm.code_type.includes('FIRE');
+  const bgColor = isRedCode ? 'bg-red-600 animate-alarm-bg' : 'bg-blue-600 animate-pulse';
 
   return (
-    <div className={`fixed inset-0 z-50 flex flex-col items-center justify-center text-white ${bgColor}`}>
-      <div className="relative p-8 text-center bg-black bg-opacity-70 rounded-xl backdrop-blur-md max-w-5xl w-full mx-4 border-4 border-white shadow-2xl">
+    <div className={`fixed inset-0 z-[9999] flex flex-col items-center justify-center text-white ${bgColor} transition-all duration-500`}>
+      
+      {/* Lớp nền mờ */}
+      <div className="absolute inset-0 bg-black bg-opacity-50"></div>
+
+      <div className="relative w-full h-full flex flex-col items-center justify-center p-4">
         
-        {/* Đồng hồ đếm ngược góc phải */}
-        <div className="absolute top-4 right-4 flex items-center bg-white text-black px-3 py-1 rounded-full font-mono font-bold">
-            <Clock size={16} className="mr-2" />
-            Tự động tắt: {formatTime(timeRemaining)}
+        {/* Đồng hồ đếm ngược to đùng */}
+        <div className="absolute top-10 right-10 bg-white text-red-600 font-black text-4xl px-6 py-4 rounded-2xl shadow-2xl flex items-center border-4 border-red-600">
+            <Clock className="mr-3 w-10 h-10 animate-spin-slow" />
+            {formatTime(timeRemaining)}
         </div>
 
         {!canPlaySound && (
-            <button onClick={() => { audioRef.current.play(); setCanPlaySound(true); }} className="mb-4 flex items-center justify-center bg-yellow-500 text-black px-6 py-3 rounded-full font-bold animate-bounce mx-auto shadow-lg border-2 border-black">
-                <Volume2 className="mr-2" /> BẤM VÀO ĐÂY ĐỂ BẬT LOA
+            <button onClick={() => { audioRef.current.play(); setCanPlaySound(true); }} className="absolute top-10 left-10 bg-yellow-400 text-black px-8 py-4 rounded-full font-bold animate-bounce shadow-xl border-4 border-black text-xl z-50">
+                <Volume2 className="inline mr-2" /> BẬT LOA NGAY
             </button>
         )}
 
-        <AlertTriangle size={80} className="mx-auto mb-4 animate-bounce text-yellow-300" />
+        {/* Biểu tượng cảnh báo */}
+        <div className="mb-4 animate-bounce">
+            <AlertTriangle size={180} className="text-yellow-300 drop-shadow-[0_10px_10px_rgba(0,0,0,0.8)]" />
+        </div>
         
-        <h1 className="text-5xl md:text-7xl font-black uppercase tracking-widest mb-2 drop-shadow-lg">{activeAlarm.code_type}</h1>
-        <h2 className="text-2xl md:text-4xl font-bold mb-6 text-yellow-300 drop-shadow-md">TẠI: {activeAlarm.department_source}</h2>
-        <p className="text-xl md:text-3xl mb-8 bg-white text-black p-4 rounded-lg font-bold border-l-8 border-red-800 shadow-inner">"{activeAlarm.message}"</p>
+        {/* Tên mã báo động - Font cực to */}
+        <h1 className="text-[10vw] leading-none font-black uppercase tracking-tighter mb-4 text-transparent bg-clip-text bg-gradient-to-b from-white to-gray-300 drop-shadow-2xl text-center">
+            {activeAlarm.code_type}
+        </h1>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left bg-black bg-opacity-40 p-4 rounded-lg mb-6 max-h-60 overflow-y-auto border border-white/20">
-            <div>
-                <h3 className="font-bold border-b border-gray-400 mb-2 pb-1 text-gray-300 uppercase text-xs tracking-wider">Thông tin gửi:</h3>
-                <p className="text-lg font-mono">{new Date(activeAlarm.created_at).toLocaleTimeString()}</p>
-            </div>
-            <div>
-                <h3 className="font-bold border-b border-gray-400 mb-2 pb-1 flex items-center text-gray-300 uppercase text-xs tracking-wider">
-                    <CheckCircle size={14} className="mr-2 text-green-400"/> Đã tiếp nhận ({ackList.length}):
-                </h3>
-                <ul className="text-sm space-y-2 font-mono">
-                    {ackList.map(ack => (
-                        <li key={ack.id} className="flex items-center text-green-300">
-                            <span className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse shadow-[0_0_10px_#22c55e]"></span>
-                            {ack.receiver_department}
-                        </li>
-                    ))}
-                </ul>
-            </div>
+        {/* Vị trí */}
+        <h2 className="text-5xl md:text-7xl font-bold mb-8 text-yellow-300 drop-shadow-md text-center bg-black bg-opacity-40 px-8 py-2 rounded-xl">
+            TẠI: {activeAlarm.department_source}
+        </h2>
+
+        {/* Nội dung chi tiết */}
+        <div className="text-3xl md:text-5xl font-bold text-center mb-10 max-w-5xl leading-relaxed bg-white text-red-700 p-6 rounded-xl shadow-2xl border-4 border-red-800">
+            "{activeAlarm.message}"
         </div>
 
-        <button 
-            onClick={handleResolveClick}
-            className="w-full py-4 bg-white text-red-900 font-black text-xl rounded-lg shadow-xl hover:bg-gray-100 transition transform hover:scale-[1.02] active:scale-95 uppercase border-b-8 border-gray-300"
-        >
-            Xác nhận xử lý / Tắt báo động
-        </button>
+        {/* Footer: Danh sách đã nhận + Nút tắt */}
+        <div className="absolute bottom-10 w-full max-w-7xl flex flex-col md:flex-row justify-between items-end px-4">
+            
+            {/* List đã nhận */}
+            <div className="bg-black bg-opacity-60 p-6 rounded-2xl backdrop-blur-md border border-white/30 max-w-lg w-full mb-4 md:mb-0">
+                <h3 className="font-bold text-gray-300 uppercase text-sm mb-3 flex items-center">
+                    <CheckCircle size={20} className="mr-2 text-green-400"/> Đơn vị đã tiếp nhận ({ackList.length}):
+                </h3>
+                <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
+                    {ackList.map(ack => (
+                        <span key={ack.id} className="bg-green-600 px-3 py-1 rounded-full text-sm font-bold shadow">
+                            {ack.receiver_department}
+                        </span>
+                    ))}
+                </div>
+            </div>
+
+            {/* Nút tắt thủ công */}
+            <button 
+                onClick={handleManualStop}
+                className="bg-white text-red-700 px-10 py-6 rounded-2xl font-black text-2xl md:text-3xl shadow-[0_0_30px_rgba(255,255,255,0.6)] hover:bg-gray-100 hover:scale-105 transition-transform flex items-center uppercase border-b-8 border-gray-300"
+            >
+                <XCircle className="mr-3 w-10 h-10"/> XÁC NHẬN & TẮT (ĐÃ XỬ LÝ)
+            </button>
+        </div>
       </div>
     </div>
   );

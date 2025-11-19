@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@keyframes flash-red {
+  0%, 100% { background-color: rgba(220, 38, 38, 0.9); }
+  50% { background-color: rgba(153, 27, 27, 0.95); }
+}
+.animate-alarm-bg {
+  animation: flash-red 1s infinite;
+}
+.custom-scrollbar::-webkit-scrollbar { width: 6px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }

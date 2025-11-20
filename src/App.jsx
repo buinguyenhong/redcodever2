@@ -3,6 +3,8 @@ import { AuthProvider, useAuth } from './AuthContext';
 import Login from './Login';
 import Dashboard from './Dashboard';
 import AlarmOverlay from './AlarmOverlay';
+import Monitor from './Monitor';
+import Reports from './Reports';
 
 const PrivateRoute = ({ children }) => {
   const { user, loading } = useAuth();

@@ -4,10 +4,10 @@ import { useAuth } from './AuthContext';
 import { AlertTriangle, CheckCircle, Volume2, Clock, XCircle } from 'lucide-react';
 
 const SOUND_MAP = {
-  'RED CODE 1': 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3',
-  'RED CODE 2': 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3',
-  'BLUE CODE': 'https://assets.mixkit.co/active_storage/sfx/2559/2559-preview.mp3',
-  'FIRE ALARM': 'https://assets.mixkit.co/active_storage/sfx/1090/1090-preview.mp3',
+  'RED CODE 1': 'https://qyzrknfskbysqepuxqwj.supabase.co/storage/v1/object/public/alarm-sounds/red_code_1_ngung_tuan_hoan_ho_hap_3701fc8e-ff1d-4392-8912-1a89197b79d7.mp3',
+'RED CODE 2': 'https://qyzrknfskbysqepuxqwj.supabase.co/storage/v1/object/public/alarm-sounds/red_code_2_cap_cuu_khan_cap_090638a2-3bf8-4b01-9fe2-afd08aa487bb.mp3',
+'BLUE CODE': 'https://qyzrknfskbysqepuxqwj.supabase.co/storage/v1/object/public/alarm-sounds/blue_code_cap_cuu_noi_vien_32b451e1-5bd7-41d7-89c5-751015ab497f.mp3',
+'FIRE ALARM': 'https://qyzrknfskbysqepuxqwj.supabase.co/storage/v1/object/public/alarm-sounds/khan_cap_bao_chay_6c80fd25-44c8-41e5-a0b8-c653172f4c8a.mp3',
 };
 const DEFAULT_SOUND = SOUND_MAP['RED CODE 1'];
 

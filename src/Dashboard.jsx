@@ -68,6 +68,19 @@ export default function Dashboard() {
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
       <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center sticky top-0 z-30 shadow-sm">
         <div className="flex items-center space-x-3">
+          <button
+  onClick={() => window.location.href = '#/monitor'}
+  className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition"
+>
+  Giám sát thiết bị
+</button>
+
+<button
+  onClick={() => window.location.href = '#/reports'}
+  className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-bold hover:bg-green-700 transition"
+>
+  Xuất báo cáo
+</button>
             <div className="bg-red-600 p-2 rounded-lg text-white shadow-lg shadow-red-200">
                 <Activity size={24} />
             </div>

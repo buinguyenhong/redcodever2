@@ -1,12 +1,15 @@
 import { useState } from 'react';
 import { supabase } from './supabaseClient';
 import { ShieldAlert } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  const navigate = useNavigate();
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -18,7 +21,14 @@ export default function Login() {
       password,
     });
 
-    if (error) setError('Đăng nhập thất bại: ' + error.message);
+    if (error) {
+      setError('Đăng nhập thất bại: ' + error.message);
+      setLoading(false);
+      return;
+    }
+
+    // 🎯 Redirect ngay sau khi đăng nhập thành công
+    navigate('/');
     setLoading(false);
   };
 

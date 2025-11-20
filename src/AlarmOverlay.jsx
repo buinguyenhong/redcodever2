@@ -3,17 +3,15 @@ import { supabase } from './supabaseClient';
 import { useAuth } from './AuthContext';
 import { AlertTriangle, CheckCircle, Volume2, Clock, XCircle } from 'lucide-react';
 
-// 1. CẤU HÌNH ÂM THANH
 const SOUND_MAP = {
-  'RED CODE 1': 'https://qyzrknfskbysqepuxqwj.supabase.co/storage/v1/object/public/alarm-sounds/red_code_1_ngung_tuan_hoan_ho_hap_3701fc8e-ff1d-4392-8912-1a89197b79d7.mp3',
-  'RED CODE 2': 'https://qyzrknfskbysqepuxqwj.supabase.co/storage/v1/object/public/alarm-sounds/red_code_2_cap_cuu_khan_cap_090638a2-3bf8-4b01-9fe2-afd08aa487bb.mp3',
-  'BLUE CODE': 'https://qyzrknfskbysqepuxqwj.supabase.co/storage/v1/object/public/alarm-sounds/blue_code_cap_cuu_noi_vien_32b451e1-5bd7-41d7-89c5-751015ab497f.mp3',
-  'FIRE ALARM': 'https://qyzrknfskbysqepuxqwj.supabase.co/storage/v1/object/public/alarm-sounds/khan_cap_bao_chay_6c80fd25-44c8-41e5-a0b8-c653172f4c8a.mp3',
+  'RED CODE 1': 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3',
+  'RED CODE 2': 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3',
+  'BLUE CODE': 'https://assets.mixkit.co/active_storage/sfx/2559/2559-preview.mp3',
+  'FIRE ALARM': 'https://assets.mixkit.co/active_storage/sfx/1090/1090-preview.mp3',
 };
-const DEFAULT_SOUND = 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3';
+const DEFAULT_SOUND = SOUND_MAP['RED CODE 1'];
 
-// 2. CẤU HÌNH THỜI GIAN: 1 PHÚT = 60 * 1000 ms
-const AUTO_STOP_DURATION = 60 * 1000;
+const AUTO_STOP_DURATION = 60 * 1000; // 1 phút
 
 export default function AlarmOverlay() {
   const { user, profile } = useAuth();
@@ -26,15 +24,16 @@ export default function AlarmOverlay() {
   const audioRef = useRef(new Audio());
   const timerRef = useRef(null);
 
-  // Ref để luôn giữ giá trị activeAlarm mới nhất trong callback realtime
+  // Để không bị reset khi realtime update
   const activeAlarmRef = useRef(null);
 
-  // Đồng bộ ref với state
   useEffect(() => {
     activeAlarmRef.current = activeAlarm;
   }, [activeAlarm]);
 
-  // Lắng nghe realtime ALARMS chỉ 1 lần
+  //---------------------------------------------------------------------------
+  // 1) SUBSCRIBE REALTIME — CHỈ 1 LẦN, KHÔNG BAO GIỜ PHỤ THUỘC activeAlarm
+  //---------------------------------------------------------------------------
   useEffect(() => {
     const channel = supabase
       .channel('alarm-global')
@@ -42,14 +41,17 @@ export default function AlarmOverlay() {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'alarms' },
         (payload) => {
-          checkAndActivateAlarm(payload.new);
+          // Chỉ set nếu chưa có báo động nào đang hiển thị
+          if (!activeAlarmRef.current) {
+            activateAlarm(payload.new);
+          }
         }
       )
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'alarms' },
         (payload) => {
-          // Khi status = resolved -> nếu đang hiển thị alarm đó thì tắt
+          // Chỉ tắt nếu alarm của tôi được đổi trạng thái
           if (
             payload.new.status === 'resolved' &&
             activeAlarmRef.current?.id === payload.new.id
@@ -60,18 +62,16 @@ export default function AlarmOverlay() {
       )
       .subscribe();
 
-    // Kiểm tra báo động hiện có khi mới vào trang
     checkExistingAlarm();
 
-    return () => {
-      supabase.removeChannel(channel);
-      stopAlarmLocal();
-    };
-    // ✅ []: chỉ chạy một lần, không phụ thuộc activeAlarm nữa
+    return () => supabase.removeChannel(channel);
   }, []);
 
+  //---------------------------------------------------------------------------
+  // 2) KIỂM TRA BÁO ĐỘNG ĐANG ACTIVE TRONG DB KHI VỪA VÀO TRANG
+  //---------------------------------------------------------------------------
   const checkExistingAlarm = async () => {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('alarms')
       .select('*')
       .eq('status', 'active')
@@ -79,75 +79,68 @@ export default function AlarmOverlay() {
       .limit(1)
       .single();
 
-    if (error) {
-      // Có thể là "no rows", bỏ qua
-      return;
-    }
-
-    if (data) {
-      checkAndActivateAlarm(data);
-    }
+    if (data) activateAlarm(data);
   };
 
-  const checkAndActivateAlarm = (alarm) => {
+  //---------------------------------------------------------------------------
+  // 3) HÀM KÍCH HOẠT ALARM (KHÔNG BAO GIỜ RESET TIMER KHÔNG CẦN THIẾT)
+  //---------------------------------------------------------------------------
+  const activateAlarm = (alarm) => {
     if (!alarm) return;
-
-    const createdTime = new Date(alarm.created_at).getTime();
-    const now = new Date().getTime();
-    const elapsed = now - createdTime;
-
-    // Nếu đã quá 1 phút so với lúc tạo -> Không hiển thị nữa
-    if (elapsed >= AUTO_STOP_DURATION) {
-      return;
-    }
 
     setActiveAlarm(alarm);
 
+    const createdTime = new Date(alarm.created_at).getTime();
+    const now = Date.now();
+    const elapsed = now - createdTime;
+
+    const remaining = Math.max(0, AUTO_STOP_DURATION - elapsed);
+
     // Phát âm thanh
-    const soundUrl = SOUND_MAP[alarm.code_type] || DEFAULT_SOUND;
-    audioRef.current.src = soundUrl;
+    audioRef.current.src = SOUND_MAP[alarm.code_type] || DEFAULT_SOUND;
     audioRef.current.loop = true;
-    playAlarm();
+    playSound();
 
-    // Tính thời gian còn lại để tắt
-    const remaining = AUTO_STOP_DURATION - elapsed;
-
+    // Tắt timer cũ nếu có
     if (timerRef.current) clearTimeout(timerRef.current);
 
-    // Hẹn giờ: Khi hết 1 phút -> Gọi hàm tắt Database
+    // Setup timer tự tắt cho toàn hệ thống
     timerRef.current = setTimeout(() => {
-      handleAutoResolveDB(alarm.id);
+      autoResolveDB(alarm.id);
     }, remaining);
+
+    // Thiết lập countdown
+    setTimeRemaining(remaining);
   };
 
-  // Hiệu ứng đồng hồ đếm ngược
+  //---------------------------------------------------------------------------
+  // 4) COUNTDOWN
+  //---------------------------------------------------------------------------
   useEffect(() => {
-    if (!activeAlarm) {
-      setTimeRemaining(0);
-      return;
-    }
+    if (!activeAlarm) return;
 
     const interval = setInterval(() => {
       const createdTime = new Date(activeAlarm.created_at).getTime();
-      const now = new Date().getTime();
+      const now = Date.now();
       const left = Math.max(0, AUTO_STOP_DURATION - (now - createdTime));
       setTimeRemaining(left);
-
-      if (left <= 0) clearInterval(interval);
     }, 1000);
 
     return () => clearInterval(interval);
   }, [activeAlarm]);
 
-  // Logic nhận người xem (ack)
+  //---------------------------------------------------------------------------
+  // 5) LẤY DANH SÁCH ĐƠN VỊ ĐÃ NHẬN
+  //---------------------------------------------------------------------------
   useEffect(() => {
-    if (!activeAlarm || !user) return;
+    if (!activeAlarm) return;
 
     const fetchAcks = async () => {
       const { data } = await supabase
         .from('acknowledgments')
         .select('*')
         .eq('alarm_id', activeAlarm.id);
+
       if (data) setAckList(data);
     };
     fetchAcks();
@@ -168,41 +161,41 @@ export default function AlarmOverlay() {
       )
       .subscribe();
 
-    // Tự động xác nhận "Tôi đã nhận tin"
-    const sendAutoAck = async () => {
-      if (!profile) return;
+    // Gửi auto ACK
+    const sendAck = async () => {
       const { data } = await supabase
         .from('acknowledgments')
-        .select('id')
+        .select('*')
         .eq('alarm_id', activeAlarm.id)
         .eq('receiver_id', user.id);
 
-      if (data && data.length === 0) {
+      if (!data || data.length === 0) {
         await supabase.from('acknowledgments').insert({
           alarm_id: activeAlarm.id,
           receiver_id: user.id,
-          receiver_department: profile.department_name,
+          receiver_department: profile?.department_name,
         });
       }
     };
-    sendAutoAck();
 
-    return () => {
-      supabase.removeChannel(ackChannel);
-    };
+    sendAck();
+
+    return () => supabase.removeChannel(ackChannel);
   }, [activeAlarm, user, profile]);
 
-  const playAlarm = () => {
+  //---------------------------------------------------------------------------
+  // 6) PHÁT ÂM THANH
+  //---------------------------------------------------------------------------
+  const playSound = () => {
     const playPromise = audioRef.current.play();
-    if (playPromise !== undefined) {
-      playPromise.catch((error) => {
-        console.log('Auto-play bị chặn:', error);
-        setCanPlaySound(false);
-      });
+    if (playPromise) {
+      playPromise.catch(() => setCanPlaySound(false));
     }
   };
 
-  // Chỉ tắt ở máy hiện tại (UI)
+  //---------------------------------------------------------------------------
+  // 7) TẮT CHỈ TRÊN MÁY HIỆN TẠI
+  //---------------------------------------------------------------------------
   const stopAlarmLocal = () => {
     setActiveAlarm(null);
     activeAlarmRef.current = null;
@@ -210,122 +203,80 @@ export default function AlarmOverlay() {
     setCanPlaySound(true);
     audioRef.current.pause();
     audioRef.current.currentTime = 0;
+
     if (timerRef.current) clearTimeout(timerRef.current);
   };
 
-  // Tắt trên toàn hệ thống (Ghi vào DB)
-  const handleAutoResolveDB = async (alarmId) => {
-    if (!alarmId) return;
-    console.log(
-      'Hết 1 phút hoặc nhấn nút -> Tự động tắt báo động trên toàn hệ thống.',
-    );
-    stopAlarmLocal(); // Tắt local trước cho đỡ ồn
+  //---------------------------------------------------------------------------
+  // 8) TỰ ĐỘNG UPDATE DB SAU 1 PHÚT
+  //---------------------------------------------------------------------------
+  const autoResolveDB = async (alarmId) => {
+    stopAlarmLocal(); // Tắt local
 
-    // Cập nhật DB: status = 'resolved'
-    // Khi DB update, sự kiện realtime 'UPDATE' sẽ bắn về các máy khác để tắt theo
     await supabase
       .from('alarms')
       .update({ status: 'resolved' })
       .eq('id', alarmId);
   };
 
- // Tắt thủ công chỉ trên máy hiện tại
-const handleManualStop = () => {
-  stopAlarmLocal();
-};
-
-  const formatTime = (ms) => {
-    const totalSeconds = Math.floor(ms / 1000);
-    const s = totalSeconds % 60;
-    return `${s}s`;
+  //---------------------------------------------------------------------------
+  // 9) NÚT XÁC NHẬN — CHỈ TẮT LOCAL
+  //---------------------------------------------------------------------------
+  const handleManualStop = () => {
+    stopAlarmLocal(); // KHÔNG update DB
   };
 
+  //---------------------------------------------------------------------------
+  // RENDER
+  //---------------------------------------------------------------------------
   if (!activeAlarm) return null;
 
-  const isRedCode =
-    activeAlarm.code_type.includes('RED') ||
-    activeAlarm.code_type.includes('FIRE');
-  const bgColor = isRedCode
-    ? 'bg-red-600 animate-alarm-bg'
-    : 'bg-blue-600 animate-pulse';
+  const isRed = activeAlarm.code_type.includes('RED') || activeAlarm.code_type.includes('FIRE');
 
   return (
-    <div
-      className={`fixed inset-0 z-[9999] flex flex-col items-center justify-center text-white ${bgColor} transition-all duration-500`}
-    >
-      {/* Lớp nền mờ */}
-      <div className="absolute inset-0 bg-black bg-opacity-50"></div>
+    <div className={`fixed inset-0 z-[9999] flex items-center justify-center ${isRed ? 'bg-red-600 animate-alarm-bg' : 'bg-blue-600 animate-pulse'}`}>
+      
+      <div className="absolute inset-0 bg-black/50"></div>
 
-      <div className="relative w-full h-full flex flex-col items-center justify-center p-4">
-        {/* Đồng hồ đếm ngược to đùng */}
-        <div className="absolute top-10 right-10 bg-white text-red-600 font-black text-4xl px-6 py-4 rounded-2xl shadow-2xl flex items-center border-4 border-red-600">
-          <Clock className="mr-3 w-10 h-10 animate-spin-slow" />
-          {formatTime(timeRemaining)}
+      <div className="relative text-white text-center px-10 max-w-4xl">
+
+        {/* Timer */}
+        <div className="absolute top-10 right-10 bg-white text-red-600 px-6 py-4 rounded-2xl text-4xl font-black">
+          <Clock className="inline-block mr-3" />
+          {Math.floor(timeRemaining / 1000)}s
         </div>
 
         {!canPlaySound && (
           <button
-            onClick={() => {
-              audioRef.current.play();
-              setCanPlaySound(true);
-            }}
-            className="absolute top-10 left-10 bg-yellow-400 text-black px-8 py-4 rounded-full font-bold animate-bounce shadow-xl border-4 border-black text-xl z-50"
+            onClick={() => { audioRef.current.play(); setCanPlaySound(true); }}
+            className="absolute top-10 left-10 bg-yellow-400 text-black px-8 py-4 font-bold rounded-xl animate-bounce"
           >
-            <Volume2 className="inline mr-2" /> BẬT LOA NGAY
+            <Volume2 className="inline mr-2" /> BẬT LOA
           </button>
         )}
 
-        {/* Biểu tượng cảnh báo */}
-        <div className="mb-4 animate-bounce">
-          <AlertTriangle
-            size={180}
-            className="text-yellow-300 drop-shadow-[0_10px_10px_rgba(0,0,0,0.8)]"
-          />
-        </div>
+        <AlertTriangle size={180} className="mx-auto text-yellow-300 animate-bounce" />
 
-        {/* Tên mã báo động - Font cực to */}
-        <h1 className="text-[10vw] leading-none font-black uppercase tracking-tighter mb-4 text-transparent bg-clip-text bg-gradient-to-b from-white to-gray-300 drop-shadow-2xl text-center">
-          {activeAlarm.code_type}
-        </h1>
+        <h1 className="text-[10vw] font-black uppercase mt-4">{activeAlarm.code_type}</h1>
 
-        {/* Vị trí */}
-        <h2 className="text-5xl md:text-7xl font-bold mb-8 text-yellow-300 drop-shadow-md text-center bg-black bg-opacity-40 px-8 py-2 rounded-xl">
+        <h2 className="text-5xl font-bold mt-4 bg-black/40 px-6 py-2 inline-block rounded-xl">
           TẠI: {activeAlarm.department_source}
         </h2>
 
-        {/* Nội dung chi tiết */}
-        <div className="text-3xl md:text-5xl font-bold text-center mb-10 max-w-5xl leading-relaxed bg-white text-red-700 p-6 rounded-xl shadow-2xl border-4 border-red-800">
+        <p className="text-4xl font-bold text-red-700 bg-white p-6 rounded-xl max-w-3xl mx-auto mt-6">
           "{activeAlarm.message}"
-        </div>
+        </p>
 
-        {/* Footer: Danh sách đã nhận + Nút tắt */}
-        <div className="absolute bottom-10 w-full max-w-7xl flex flex-col md:flex-row justify-between items-end px-4">
-          {/* List đã nhận */}
-          <div className="bg-black bg-opacity-60 p-6 rounded-2xl backdrop-blur-md border border-white/30 max-w-lg w-full mb-4 md:mb-0">
-            <h3 className="font-bold text-gray-300 uppercase text-sm mb-3 flex items-center">
-              <CheckCircle size={20} className="mr-2 text-green-400" /> Đơn vị
-              đã tiếp nhận ({ackList.length}):
-            </h3>
-            <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
-              {ackList.map((ack) => (
-                <span
-                  key={ack.id}
-                  className="bg-green-600 px-3 py-1 rounded-full text-sm font-bold shadow"
-                >
-                  {ack.receiver_department}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          {/* Nút tắt thủ công */}
+        {/* Footer */}
+        <div className="mt-10">
           <button
             onClick={handleManualStop}
-            className="bg-white text-red-700 px-10 py-6 rounded-2xl font-black text-2xl md:text-3xl shadow-[0_0_30px_rgba(255,255,255,0.6)] hover:bg-gray-100 hover:scale-105 transition-transform flex items-center uppercase border-b-8 border-gray-300"
+            className="bg-white text-red-700 px-12 py-6 text-3xl font-black rounded-xl"
           >
-            <XCircle className="mr-3 w-10 h-10" /> XÁC NHẬN & TẮT
+            <XCircle className="inline mr-2" /> XÁC NHẬN & TẮT TẠI MÁY NÀY
           </button>
         </div>
+
       </div>
     </div>
   );

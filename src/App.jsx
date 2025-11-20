@@ -5,6 +5,7 @@ import Dashboard from './Dashboard';
 import AlarmOverlay from './AlarmOverlay';
 import Monitor from './Monitor';
 import Reports from './Reports';
+import { useOnlineHeartbeat } from './useOnlineHeartbeat';  
 
 const PrivateRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -22,30 +23,32 @@ export default function App() {
 
 function AppContent() {
   const { user } = useAuth();
-  useOnlineHeartbeat();
+  useOnlineHeartbeat();  
 
   return (
     <>
       {user && <AlarmOverlay />}
       <Routes>
         <Route
-  path="/monitor"
-  element={
-    <PrivateRoute>
-      <Monitor />
-    </PrivateRoute>
-  }
-/>
+          path="/monitor"
+          element={
+            <PrivateRoute>
+              <Monitor />
+            </PrivateRoute>
+          }
+        />
 
-<Route
-  path="/reports"
-  element={
-    <PrivateRoute>
-      <Reports />
-    </PrivateRoute>
-  }
-/>
+        <Route
+          path="/reports"
+          element={
+            <PrivateRoute>
+              <Reports />
+            </PrivateRoute>
+          }
+        />
+
         <Route path="/login" element={<Login />} />
+
         <Route
           path="/"
           element={

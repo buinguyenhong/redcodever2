@@ -22,6 +22,8 @@ export default function App() {
 
 function AppContent() {
   const { user } = useAuth();
+  useOnlineHeartbeat();
+
   return (
     <>
       {user && <AlarmOverlay />}

@@ -26,6 +26,23 @@ function AppContent() {
     <>
       {user && <AlarmOverlay />}
       <Routes>
+        <Route
+  path="/monitor"
+  element={
+    <PrivateRoute>
+      <Monitor />
+    </PrivateRoute>
+  }
+/>
+
+<Route
+  path="/reports"
+  element={
+    <PrivateRoute>
+      <Reports />
+    </PrivateRoute>
+  }
+/>
         <Route path="/login" element={<Login />} />
         <Route
           path="/"

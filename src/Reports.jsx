@@ -1,45 +1,67 @@
 import { useState } from 'react';
 import { supabase } from './supabaseClient';
+import * as XLSX from 'xlsx';
 
 export default function Reports() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const exportLogs = async () => {
+  const exportLogsXLSX = async () => {
     if (!from || !to) {
       alert("Vui lòng chọn đủ ngày bắt đầu và ngày kết thúc.");
       return;
     }
 
-    const { data } = await supabase
+    setLoading(true);
+
+    const { data, error } = await supabase
       .from('alarms')
       .select('*')
       .gte('created_at', new Date(from).toISOString())
       .lte('created_at', new Date(to).toISOString())
       .order('created_at', { ascending: true });
 
+    setLoading(false);
+
+    if (error) {
+      alert('Lỗi xuất log: ' + error.message);
+      return;
+    }
+
     const rows = data || [];
-    const header = ['Thời gian', 'Khoa/Phòng', 'Code', 'Thông điệp', 'Trạng thái'];
 
-    const csvData = [
-      header.join(','),
-      ...rows.map(r => [
-        `"${new Date(r.created_at).toLocaleString()}"`,
-        r.department_source,
-        r.code_type,
-        `"${r.message?.replace(/"/g, '""')}"`,
-        r.status,
-      ].join(','))
-    ].join('\n');
-    const csvWithBom = "\uFEFF" + csvData;
+    // Chuẩn hoá dữ liệu cho Excel
+    const excelRows = rows.map((r, i) => ({
+      "STT": i + 1,
+      "Thời gian": new Date(r.created_at).toLocaleString('vi-VN'),
+      "Khoa/Phòng": r.department_source || '',
+      "Code": r.code_type || '',
+      "Thông điệp": r.message || '',
+      "Trạng thái": r.status || '',
+    }));
 
-    const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
+    // Tạo workbook & worksheet
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(excelRows, { skipHeader: false });
 
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `redcode_logs_${from}_to_${to}.csv`;
-    link.click();
+    // Set độ rộng cột (cho đẹp và dễ đọc)
+    ws['!cols'] = [
+      { wch: 6 },   // STT
+      { wch: 22 },  // Thời gian
+      { wch: 18 },  // Khoa/Phòng
+      { wch: 14 },  // Code
+      { wch: 40 },  // Thông điệp
+      { wch: 14 },  // Trạng thái
+    ];
+
+    XLSX.utils.book_append_sheet(wb, ws, 'Logs');
+
+    // Tên file
+    const fileName = `redcode_logs_${from}_to_${to}.xlsx`;
+
+    // Xuất file
+    XLSX.writeFile(wb, fileName, { compression: true });
   };
 
   return (
@@ -68,10 +90,11 @@ export default function Reports() {
         </div>
 
         <button
-          onClick={exportLogs}
-          className="w-full py-3 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700"
+          onClick={exportLogsXLSX}
+          disabled={loading}
+          className="w-full py-3 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 disabled:opacity-50"
         >
-          Xuất file CSV
+          {loading ? "Đang xuất..." : "Xuất file Excel (.xlsx)"}
         </button>
       </div>
     </div>

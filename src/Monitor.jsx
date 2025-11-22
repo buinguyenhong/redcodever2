@@ -13,8 +13,8 @@ export default function Monitor() {
     device_id,
     last_seen,
     profiles (
-      email,
-      department_name
+      department_name,
+      role
     )
   `);
      

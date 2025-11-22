@@ -13,17 +13,21 @@ export function useOnlineHeartbeat() {
     window.localStorage.setItem('device_id', deviceId);
 
     const sendHeartbeat = async () => {
-      await supabase
-        .from('online_status')
-        .upsert(
-          {
-            user_id: user.id,
-            device_id: deviceId,
-            last_seen: new Date().toISOString(),
-          },
-          { onConflict: 'user_id,device_id' }
-        );
-    };
+  const { error } = await supabase
+    .from('online_status')
+    .upsert(
+      {
+        user_id: user.id,
+        device_id: deviceId,
+        last_seen: new Date().toISOString(),
+      },
+      { onConflict: 'user_id,device_id' }
+    );
+
+  if (error) {
+    console.error('Heartbeat error:', error);
+  }
+};
 
     sendHeartbeat();
     const interval = setInterval(sendHeartbeat, 20000);

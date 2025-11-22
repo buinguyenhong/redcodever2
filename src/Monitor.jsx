@@ -5,21 +5,27 @@ export default function Monitor() {
   const [rows, setRows] = useState([]);
 
   useEffect(() => {
-    const fetchStatus = async () => {
-      const { data } = await supabase
-        .from('online_status')
-        .select(`
-          user_id,
-          device_id,
-          last_seen,
-          profiles:profiles (
-            email,
-            department_name
-          )
-        `);
+   const fetchStatus = async () => {
+  const { data, error } = await supabase
+    .from('online_status')
+    .select(`
+      user_id,
+      device_id,
+      last_seen,
+      profiles:profiles (
+        email,
+        department_name
+      )
+    `);
 
-      setRows(data || []);
-    };
+  if (error) {
+    console.error('Fetch online_status error:', error);
+    setRows([]);
+    return;
+  }
+
+  setRows(data || []);
+};
 
     fetchStatus();
     const interval = setInterval(fetchStatus, 10000);

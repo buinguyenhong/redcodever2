@@ -7,17 +7,17 @@ export default function Monitor() {
   useEffect(() => {
    const fetchStatus = async () => {
   const { data, error } = await supabase
-    .from('online_status')
-    .select(`
-      user_id,
-      device_id,
-      last_seen,
-      profiles:profiles (
-        email,
-        department_name
-      )
-    `);
-
+  .from("online_status")
+  .select(`
+    user_id,
+    device_id,
+    last_seen,
+    profiles (
+      email,
+      department_name
+    )
+  `);
+     
   if (error) {
     console.error('Fetch online_status error:', error);
     setRows([]);

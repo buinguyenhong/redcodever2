@@ -31,6 +31,7 @@ export default function Reports() {
         r.status,
       ].join(','))
     ].join('\n');
+    const csvWithBom = "\uFEFF" + csvData;
 
     const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);

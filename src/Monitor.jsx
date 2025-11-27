@@ -16,14 +16,14 @@ export default function Monitor() {
             email,
             department_name
           )
-        `);
+        `)
+        .order('last_seen', { ascending: false }); // lấy mới nhất trước
 
       if (error) {
         console.error('Fetch online_status error:', error);
         setRows([]);
         return;
       }
-
       setRows(data || []);
     };
 
@@ -34,21 +34,35 @@ export default function Monitor() {
 
   const now = Date.now();
 
-  // ✅ Sort: Online lên trước, cùng trạng thái thì last_seen mới hơn lên trước
+  // ✅ 1) DEDUPE: mỗi device_id chỉ giữ bản ghi mới nhất
+  const dedupedRows = useMemo(() => {
+    const map = new Map();
+    for (const r of rows) {
+      const key = r.device_id;
+      const t = new Date(r.last_seen).getTime();
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, r);
+      } else {
+        const tExisting = new Date(existing.last_seen).getTime();
+        if (t > tExisting) map.set(key, r);
+      }
+    }
+    return Array.from(map.values());
+  }, [rows]);
+
+  // ✅ 2) SORT: Online lên trước, cùng nhóm thì last_seen mới hơn lên trước
   const sortedRows = useMemo(() => {
-    return [...rows].sort((a, b) => {
+    return [...dedupedRows].sort((a, b) => {
       const lastA = new Date(a.last_seen).getTime();
       const lastB = new Date(b.last_seen).getTime();
       const onlineA = now - lastA <= 30000;
       const onlineB = now - lastB <= 30000;
 
-      // 1) Online trước Offline
-      if (onlineA !== onlineB) return onlineB - onlineA;
-
-      // 2) Cùng Online/Offline thì last_seen mới hơn lên trước
-      return lastB - lastA;
+      if (onlineA !== onlineB) return onlineB - onlineA; // online first
+      return lastB - lastA; // mới hơn lên trước
     });
-  }, [rows, now]);
+  }, [dedupedRows, now]);
 
   return (
     <div className="p-6 max-w-6xl mx-auto">

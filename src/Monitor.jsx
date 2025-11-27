@@ -1,31 +1,31 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { supabase } from './supabaseClient';
 
 export default function Monitor() {
   const [rows, setRows] = useState([]);
 
   useEffect(() => {
-   const fetchStatus = async () => {
-  const { data, error } = await supabase
-  .from("online_status")
-  .select(`
-    user_id,
-    device_id,
-    last_seen,
-    profiles (
-      email,
-      department_name
-    )
-  `);
-     
-  if (error) {
-    console.error('Fetch online_status error:', error);
-    setRows([]);
-    return;
-  }
+    const fetchStatus = async () => {
+      const { data, error } = await supabase
+        .from("online_status")
+        .select(`
+          user_id,
+          device_id,
+          last_seen,
+          profiles (
+            email,
+            department_name
+          )
+        `);
 
-  setRows(data || []);
-};
+      if (error) {
+        console.error('Fetch online_status error:', error);
+        setRows([]);
+        return;
+      }
+
+      setRows(data || []);
+    };
 
     fetchStatus();
     const interval = setInterval(fetchStatus, 10000);
@@ -33,6 +33,22 @@ export default function Monitor() {
   }, []);
 
   const now = Date.now();
+
+  // ✅ Sort: Online lên trước, cùng trạng thái thì last_seen mới hơn lên trước
+  const sortedRows = useMemo(() => {
+    return [...rows].sort((a, b) => {
+      const lastA = new Date(a.last_seen).getTime();
+      const lastB = new Date(b.last_seen).getTime();
+      const onlineA = now - lastA <= 30000;
+      const onlineB = now - lastB <= 30000;
+
+      // 1) Online trước Offline
+      if (onlineA !== onlineB) return onlineB - onlineA;
+
+      // 2) Cùng Online/Offline thì last_seen mới hơn lên trước
+      return lastB - lastA;
+    });
+  }, [rows, now]);
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
@@ -50,7 +66,7 @@ export default function Monitor() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => {
+            {sortedRows.map((row) => {
               const last = new Date(row.last_seen).getTime();
               const isOnline = now - last <= 30000;
 

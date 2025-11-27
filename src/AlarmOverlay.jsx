@@ -26,6 +26,9 @@ export default function AlarmOverlay() {
   const [canPlaySound, setCanPlaySound] = useState(true);
   const [timeRemaining, setTimeRemaining] = useState(0);
 
+  // NEW: chỉ tắt/ẩn tại máy local, không ảnh hưởng timer global
+  const [localDismissed, setLocalDismissed] = useState(false);
+
   // 2 audio riêng: option + khoa
   const optionAudioRef = useRef(new Audio());
   const deptAudioRef = useRef(new Audio());
@@ -34,7 +37,7 @@ export default function AlarmOverlay() {
   const activeAlarmRef = useRef(null);
   const autoResolvedRef = useRef(false);
 
-  // quan trọng: luôn có profile mới nhất để tránh stale closure
+  // luôn có profile mới nhất để tránh stale closure
   const profileRef = useRef(profile);
 
   useEffect(() => {
@@ -44,11 +47,12 @@ export default function AlarmOverlay() {
   useEffect(() => {
     profileRef.current = profile;
 
-    // nếu đang có alarm mà profile vừa load sound_url => phát lại chuỗi để có âm khoa
+    // Nếu đang có alarm mà profile vừa load sound_url => phát lại chuỗi để có âm khoa
     if (
       activeAlarmRef.current &&
       canPlaySound &&
-      profile?.department_sound_url
+      profile?.department_sound_url &&
+      !localDismissed
     ) {
       playBothSounds(activeAlarmRef.current);
     }
@@ -82,7 +86,7 @@ export default function AlarmOverlay() {
             payload.new.status === 'resolved' &&
             activeAlarmRef.current?.id === payload.new.id
           ) {
-            stopAlarmLocal();
+            stopAlarmLocal(); // resolved là global -> tắt hẳn
           }
         }
       )
@@ -162,6 +166,9 @@ export default function AlarmOverlay() {
   const activateAlarm = (alarm) => {
     if (!alarm) return;
 
+    // alarm mới -> show lại overlay local
+    setLocalDismissed(false);
+
     autoResolvedRef.current = false;
     if (timerRef.current) clearTimeout(timerRef.current);
 
@@ -174,7 +181,7 @@ export default function AlarmOverlay() {
 
     if (canPlaySound) playBothSounds(alarm);
 
-    // fallback timeout
+    // fallback timeout (global)
     timerRef.current = setTimeout(() => {
       if (!autoResolvedRef.current) {
         autoResolvedRef.current = true;
@@ -262,13 +269,29 @@ export default function AlarmOverlay() {
   }, [activeAlarm, user, profile]);
 
   // ---------------------------------------------------------------------------
-  // 7) STOP LOCAL
+  // 7A) TẮT LOCAL CHỈ Ở MÁY HIỆN TẠI (KHÔNG HUỶ TIMER)
+  // ---------------------------------------------------------------------------
+  const dismissAlarmLocalOnly = () => {
+    setLocalDismissed(true);
+
+    optionAudioRef.current.pause();
+    deptAudioRef.current.pause();
+    optionAudioRef.current.currentTime = 0;
+    deptAudioRef.current.currentTime = 0;
+
+    // KHÔNG clear timerRef
+    // KHÔNG setActiveAlarm(null)
+  };
+
+  // ---------------------------------------------------------------------------
+  // 7B) STOP LOCAL THẬT SỰ (DÙNG KHI RESOLVED GLOBAL)
   // ---------------------------------------------------------------------------
   const stopAlarmLocal = () => {
     setActiveAlarm(null);
     activeAlarmRef.current = null;
     setAckList([]);
     setCanPlaySound(true);
+    setLocalDismissed(false);
 
     optionAudioRef.current.pause();
     deptAudioRef.current.pause();
@@ -279,7 +302,7 @@ export default function AlarmOverlay() {
   };
 
   // ---------------------------------------------------------------------------
-  // 8) AUTO RESOLVE DB
+  // 8) AUTO RESOLVE DB (GLOBAL)
   // ---------------------------------------------------------------------------
   const autoResolveDB = async (alarmId) => {
     stopAlarmLocal();
@@ -291,14 +314,14 @@ export default function AlarmOverlay() {
   };
 
   // ---------------------------------------------------------------------------
-  // 9) MANUAL STOP (chỉ tắt local)
+  // 9) MANUAL STOP (chỉ tắt ở máy này)
   // ---------------------------------------------------------------------------
-  const handleManualStop = () => stopAlarmLocal();
+  const handleManualStop = () => dismissAlarmLocalOnly();
 
   // ---------------------------------------------------------------------------
   // RENDER
   // ---------------------------------------------------------------------------
-  if (!activeAlarm) return null;
+  if (!activeAlarm || localDismissed) return null;
 
   const isRed =
     activeAlarm.code_type.includes('RED') ||

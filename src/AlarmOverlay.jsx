@@ -2,13 +2,17 @@
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from './supabaseClient';
 import { useAuth } from './AuthContext';
-import { AlertTriangle, Volume2, Clock, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Volume2, Clock, XCircle } from 'lucide-react';
 
 const SOUND_MAP = {
-  'RED CODE 1': 'https://qyzrknfskbysqepuxqwj.supabase.co/storage/v1/object/public/alarm-sounds/red_code_1_ngung_tuan_hoan_ho_hap_3701fc8e-ff1d-4392-8912-1a89197b79d7.mp3',
-  'RED CODE 2': 'https://qyzrknfskbysqepuxqwj.supabase.co/storage/v1/object/public/alarm-sounds/red_code_2_cap_cuu_khan_cap_090638a2-3bf8-4b01-9fe2-afd08aa487bb.mp3',
-  'BLUE CODE': 'https://qyzrknfskbysqepuxqwj.supabase.co/storage/v1/object/public/alarm-sounds/blue_code_cap_cuu_noi_vien_32b451e1-5bd7-41d7-89c5-751015ab497f.mp3',
-  'FIRE ALARM': 'https://qyzrknfskbysqepuxqwj.supabase.co/storage/v1/object/public/alarm-sounds/khan_cap_bao_chay_6c80fd25-44c8-41e5-a0b8-c653172f4c8a.mp3',
+  'RED CODE 1':
+    'https://qyzrknfskbysqepuxqwj.supabase.co/storage/v1/object/public/alarm-sounds/red_code_1_ngung_tuan_hoan_ho_hap_3701fc8e-ff1d-4392-8912-1a89197b79d7.mp3',
+  'RED CODE 2':
+    'https://qyzrknfskbysqepuxqwj.supabase.co/storage/v1/object/public/alarm-sounds/red_code_2_cap_cuu_khan_cap_090638a2-3bf8-4b01-9fe2-afd08aa487bb.mp3',
+  'BLUE CODE':
+    'https://qyzrknfskbysqepuxqwj.supabase.co/storage/v1/object/public/alarm-sounds/blue_code_cap_cuu_noi_vien_32b451e1-5bd7-41d7-89c5-751015ab497f.mp3',
+  'FIRE ALARM':
+    'https://qyzrknfskbysqepuxqwj.supabase.co/storage/v1/object/public/alarm-sounds/khan_cap_bao_chay_6c80fd25-44c8-41e5-a0b8-c653172f4c8a.mp3',
 };
 const DEFAULT_SOUND = SOUND_MAP['RED CODE 1'];
 
@@ -30,13 +34,15 @@ export default function AlarmOverlay() {
 
   // Để không bị reset khi realtime update
   const activeAlarmRef = useRef(null);
+  // Để tránh autoResolveDB bị gọi 2 lần
+  const autoResolvedRef = useRef(false);
 
   useEffect(() => {
     activeAlarmRef.current = activeAlarm;
   }, [activeAlarm]);
 
   //---------------------------------------------------------------------------
-  // 1) SUBSCRIBE REALTIME — CHỈ 1 LẦN, KHÔNG BAO GIỜ PHỤ THUỘC activeAlarm
+  // 1) SUBSCRIBE REALTIME — CHỈ 1 LẦN
   //---------------------------------------------------------------------------
   useEffect(() => {
     const channel = supabase
@@ -45,8 +51,11 @@ export default function AlarmOverlay() {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'alarms' },
         (payload) => {
-          // Chỉ set nếu chưa có báo động nào đang hiển thị
-          if (!activeAlarmRef.current) {
+          // Chỉ activate nếu chưa có alarm hoặc id khác
+          if (
+            !activeAlarmRef.current ||
+            activeAlarmRef.current.id !== payload.new.id
+          ) {
             activateAlarm(payload.new);
           }
         }
@@ -55,7 +64,7 @@ export default function AlarmOverlay() {
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'alarms' },
         (payload) => {
-          // Chỉ tắt nếu alarm của tôi được đổi trạng thái
+          // Chỉ tắt nếu alarm hiện tại được đổi status
           if (
             payload.new.status === 'resolved' &&
             activeAlarmRef.current?.id === payload.new.id
@@ -68,7 +77,9 @@ export default function AlarmOverlay() {
 
     checkExistingAlarm();
 
-    return () => supabase.removeChannel(channel);
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   //---------------------------------------------------------------------------
@@ -87,16 +98,16 @@ export default function AlarmOverlay() {
   };
 
   //---------------------------------------------------------------------------
-  // 3) PHÁT 2 ÂM THANH: option (giữ nguyên) -> khoa đăng nhập (từ profiles)
+  // 3) PHÁT ÂM THANH: OPTION (GIỮ NGUYÊN) + KHOA ĐĂNG NHẬP
   //---------------------------------------------------------------------------
   const playBothSounds = (alarm) => {
     if (!alarm) return;
 
     const optionSrc = SOUND_MAP[alarm.code_type] || DEFAULT_SOUND;
-    const deptSrc = profile?.department_sound_url; // link mp3 lưu trong public.profiles
+    const deptSrc = profile?.department_sound_url; // cột mới trong profiles
 
     try {
-      // reset handlers cũ
+      // reset handler cũ
       optionAudioRef.current.onended = null;
       deptAudioRef.current.onended = null;
 
@@ -106,12 +117,14 @@ export default function AlarmOverlay() {
       optionAudioRef.current.currentTime = 0;
 
       const p1 = optionAudioRef.current.play();
-      if (p1) p1.catch(() => setCanPlaySound(false));
+      if (p1) {
+        p1.catch(() => setCanPlaySound(false));
+      }
 
       // 2) option xong thì phát khoa (nếu có)
       optionAudioRef.current.onended = () => {
         if (!deptSrc) {
-          // chưa set link khoa => lặp lại option (giống hành vi cũ)
+          // chưa cấu hình âm khoa → lặp lại option như cũ
           playBothSounds(alarm);
           return;
         }
@@ -121,10 +134,14 @@ export default function AlarmOverlay() {
         deptAudioRef.current.currentTime = 0;
 
         const p2 = deptAudioRef.current.play();
-        if (p2) p2.catch(() => setCanPlaySound(false));
+        if (p2) {
+          p2.catch(() => setCanPlaySound(false));
+        }
 
-        // loop cả chuỗi
-        deptAudioRef.current.onended = () => playBothSounds(alarm);
+        // loop cả chuỗi option -> khoa -> option -> khoa...
+        deptAudioRef.current.onended = () => {
+          playBothSounds(alarm);
+        };
       };
     } catch (e) {
       console.error('playBothSounds error:', e);
@@ -133,30 +150,33 @@ export default function AlarmOverlay() {
   };
 
   //---------------------------------------------------------------------------
-  // 4) HÀM KÍCH HOẠT ALARM (KHÔNG BAO GIỜ RESET TIMER KHÔNG CẦN THIẾT)
+  // 4) HÀM KÍCH HOẠT ALARM
   //---------------------------------------------------------------------------
   const activateAlarm = (alarm) => {
     if (!alarm) return;
+
+    // reset trạng thái auto-resolve & timer
+    autoResolvedRef.current = false;
+    if (timerRef.current) clearTimeout(timerRef.current);
 
     setActiveAlarm(alarm);
 
     const createdTime = new Date(alarm.created_at).getTime();
     const now = Date.now();
     const elapsed = now - createdTime;
-
     const remaining = Math.max(0, AUTO_STOP_DURATION - elapsed);
 
-    // Phát âm thanh option + khoa đăng nhập
+    // Phát âm thanh
     if (canPlaySound) {
       playBothSounds(alarm);
     }
 
-    // Tắt timer cũ nếu có
-    if (timerRef.current) clearTimeout(timerRef.current);
-
-    // Setup timer tự tắt cho toàn hệ thống
+    // Setup timer tự tắt cho toàn hệ thống (fallback)
     timerRef.current = setTimeout(() => {
-      autoResolveDB(alarm.id);
+      if (!autoResolvedRef.current) {
+        autoResolvedRef.current = true;
+        autoResolveDB(alarm.id);
+      }
     }, remaining);
 
     // Thiết lập countdown
@@ -164,7 +184,7 @@ export default function AlarmOverlay() {
   };
 
   //---------------------------------------------------------------------------
-  // 5) COUNTDOWN
+  // 5) COUNTDOWN + AUTO RESOLVE DỰA TRÊN THỜI GIAN THỰC
   //---------------------------------------------------------------------------
   useEffect(() => {
     if (!activeAlarm) return;
@@ -174,6 +194,13 @@ export default function AlarmOverlay() {
       const now = Date.now();
       const left = Math.max(0, AUTO_STOP_DURATION - (now - createdTime));
       setTimeRemaining(left);
+
+      // Nếu hết thời gian mà timer đã bị trễ → chủ động auto resolve
+      if (left === 0 && !autoResolvedRef.current) {
+        autoResolvedRef.current = true;
+        if (timerRef.current) clearTimeout(timerRef.current);
+        autoResolveDB(activeAlarm.id);
+      }
     }, 1000);
 
     return () => clearInterval(interval);
@@ -211,7 +238,7 @@ export default function AlarmOverlay() {
       )
       .subscribe();
 
-    // Gửi auto ACK
+    // Gửi auto ACK cho user hiện tại
     const sendAck = async () => {
       const { data } = await supabase
         .from('acknowledgments')
@@ -242,7 +269,7 @@ export default function AlarmOverlay() {
     setAckList([]);
     setCanPlaySound(true);
 
-    // dừng cả 2 audio
+    // Dừng cả 2 audio
     optionAudioRef.current.pause();
     deptAudioRef.current.pause();
     optionAudioRef.current.currentTime = 0;
@@ -255,8 +282,10 @@ export default function AlarmOverlay() {
   // 8) TỰ ĐỘNG UPDATE DB SAU 1 PHÚT
   //---------------------------------------------------------------------------
   const autoResolveDB = async (alarmId) => {
-    stopAlarmLocal(); // Tắt local
+    // Tắt local
+    stopAlarmLocal();
 
+    // Cập nhật DB
     await supabase
       .from('alarms')
       .update({ status: 'resolved' })
@@ -294,11 +323,12 @@ export default function AlarmOverlay() {
           {Math.floor(timeRemaining / 1000)}s
         </div>
 
+        {/* Bật loa nếu browser chặn autoplay */}
         {!canPlaySound && (
           <button
             onClick={() => {
               setCanPlaySound(true);
-              playBothSounds(activeAlarm);
+              if (activeAlarm) playBothSounds(activeAlarm);
             }}
             className="absolute top-10 left-10 bg-yellow-400 text-black px-8 py-4 font-bold rounded-xl animate-bounce"
           >
@@ -319,7 +349,7 @@ export default function AlarmOverlay() {
           TẠI: {activeAlarm.department_source}
         </h2>
 
-        {/* (tuỳ chọn) hiển thị khoa đăng nhập, khớp với âm thanh */}
+        {/* Khoa đang đăng nhập (trùng với âm thanh khoa) */}
         <h3 className="text-4xl font-bold mt-4 bg-black/30 px-6 py-2 inline-block rounded-xl">
           Khoa nhận: {profile?.department_name || 'Không xác định'}
         </h3>

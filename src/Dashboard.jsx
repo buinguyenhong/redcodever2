@@ -110,7 +110,7 @@ export default function Dashboard() {
 
           <div>
             <h1 className="text-xl font-bold text-slate-800 leading-none">RedCode System</h1>
-            <p className="text-xs text-slate-500 font-medium mt-1">Bệnh Viện Đa Khoa</p>
+            <p className="text-xs text-slate-500 font-medium mt-1">Bệnh Viện Đa Khoa Thiện Hạnh</p>
           </div>
         </div>
 

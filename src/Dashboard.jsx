@@ -104,9 +104,8 @@ export default function Dashboard() {
             Xuất báo cáo
           </button>
 
-          <div className="bg-red-600 p-2 rounded-lg text-white shadow-lg shadow-red-200">
-            <Activity size={24} />
-          </div>
+          <img src="https://qyzrknfskbysqepuxqwj.supabase.co/storage/v1/object/public/picture/favicon.ico" alt="My Icon" className="w-6 h-6" />
+
 
           <div>
             <h1 className="text-xl font-bold text-slate-800 leading-none">RedCode System</h1>
